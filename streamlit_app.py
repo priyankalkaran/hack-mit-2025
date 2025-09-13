@@ -382,55 +382,73 @@ class TravelEaseApp:
 
         # Show AI-generated destination suggestions based on user input
         destination_input = st.session_state.travel_plans.get('destination_input', '')
-
+        
         col1, col2 = st.columns([2, 1])
-
+        
         with col1:
-            st.markdown("### 🎯 Destination Options")
-
-            # Generate contextual suggestions based on user input
-            def get_destination_suggestions(user_input):
-                user_input_lower = user_input.lower()
-
-                if any(word in user_input_lower for word in ['usa', 'united states', 'america', 'us']):
-                    return [
-                        {"name": "New York City, USA", "description": "The city that never sleeps with iconic landmarks and world-class culture", "best_time": "April-June, September-November", "avg_temp": "10-25°C"},
-                        {"name": "San Francisco, USA", "description": "Golden Gate Bridge, tech hub, and diverse neighborhoods", "best_time": "September-November", "avg_temp": "13-20°C"},
-                        {"name": "Miami, USA", "description": "Vibrant beaches, nightlife, and Art Deco architecture", "best_time": "December-April", "avg_temp": "20-28°C"}
+            st.markdown("### 🎯 Destination Recommendations")
+            
+            # Get AI-powered destination suggestions from Flask backend
+            with st.spinner("🤖 Getting AI-powered destination recommendations..."):
+                # Prepare the travel preferences for the AI (convert dates to strings for JSON serialization)
+                travel_plans_serializable = dict(st.session_state.travel_plans)
+                if 'travel_dates' in travel_plans_serializable:
+                    travel_plans_serializable['travel_dates'] = [
+                        date.isoformat() if hasattr(date, 'isoformat') else str(date) 
+                        for date in travel_plans_serializable['travel_dates']
                     ]
-                elif any(word in user_input_lower for word in ['europe', 'european']):
-                    return [
-                        {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                        {"name": "Rome, Italy", "description": "Eternal City with ancient history and incredible cuisine", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                        {"name": "Barcelona, Spain", "description": "Gaudí architecture, beaches, and vibrant culture", "best_time": "May-June, September-October", "avg_temp": "18-26°C"}
-                    ]
-                elif any(word in user_input_lower for word in ['asia', 'asian']):
-                    return [
-                        {"name": "Tokyo, Japan", "description": "Modern metropolis blending tradition with cutting-edge technology", "best_time": "March-May, September-November", "avg_temp": "10-26°C"},
-                        {"name": "Bangkok, Thailand", "description": "Vibrant street life, temples, and incredible street food", "best_time": "November-March", "avg_temp": "25-35°C"},
-                        {"name": "Singapore", "description": "Garden city with diverse culture and world-class dining", "best_time": "February-April", "avg_temp": "25-31°C"}
-                    ]
-                elif any(word in user_input_lower for word in ['beach', 'tropical', 'island']):
-                    return [
-                        {"name": "Bali, Indonesia", "description": "Tropical paradise with beaches, temples, and rich culture", "best_time": "April-October", "avg_temp": "24-31°C"},
-                        {"name": "Maldives", "description": "Crystal clear waters and overwater bungalows", "best_time": "November-April", "avg_temp": "26-30°C"},
-                        {"name": "Santorini, Greece", "description": "Stunning sunsets, white buildings, and volcanic beaches", "best_time": "April-October", "avg_temp": "18-28°C"}
-                    ]
-                elif any(word in user_input_lower for word in ['mountain', 'ski', 'snow']):
-                    return [
-                        {"name": "Swiss Alps, Switzerland", "description": "Majestic mountains, skiing, and charming villages", "best_time": "December-March (skiing), June-September (hiking)", "avg_temp": "-5-20°C"},
-                        {"name": "Aspen, Colorado", "description": "World-class skiing and mountain adventures", "best_time": "December-March (skiing), June-September (hiking)", "avg_temp": "-10-25°C"},
-                        {"name": "Chamonix, France", "description": "Alpine paradise with Mont Blanc and extreme sports", "best_time": "December-March (skiing), June-September (hiking)", "avg_temp": "-5-20°C"}
-                    ]
+                
+                travel_preferences = {
+                    'destination_input': destination_input,
+                    'user_preferences': st.session_state.user_preferences,
+                    'travel_plans': travel_plans_serializable
+                }
+                
+                # Call the Flask backend for AI recommendations
+                ai_result = self.make_api_request("/ai-agent", {
+                    "query": f"I want to travel to {destination_input}. Suggest 3 specific destinations with details including name, description, best time to visit, and average temperature.",
+                    "preferences": travel_preferences
+                })
+                
+                if ai_result and ai_result.get('success') and ai_result.get('recommendations'):
+                    # Use AI-generated recommendations
+                    suggested_destinations = []
+                    for rec in ai_result['recommendations'][:3]:  # Take top 3
+                        suggested_destinations.append({
+                            "name": rec.get('name', 'Unknown Destination'),
+                            "description": rec.get('description', 'A wonderful travel destination'),
+                            "best_time": rec.get('best_time', 'Year-round'),
+                            "avg_temp": rec.get('avg_temp', 'Varies')
+                        })
+                    st.success("✨ AI-powered recommendations generated!")
                 else:
-                    # Default popular destinations
-                    return [
-                        {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                        {"name": "Tokyo, Japan", "description": "Modern metropolis blending tradition with cutting-edge technology", "best_time": "March-May, September-November", "avg_temp": "10-26°C"},
-                        {"name": "New York City, USA", "description": "The city that never sleeps with iconic landmarks", "best_time": "April-June, September-November", "avg_temp": "10-25°C"}
-                    ]
-
-            suggested_destinations = get_destination_suggestions(destination_input)
+                    # Fallback to contextual suggestions if AI fails
+                    st.warning("AI recommendations unavailable. Using curated suggestions.")
+                    if 'france' in destination_input.lower():
+                        suggested_destinations = [
+                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
+                            {"name": "Nice, France", "description": "French Riviera with stunning beaches and Mediterranean charm", "best_time": "May-September", "avg_temp": "18-28°C"},
+                            {"name": "Lyon, France", "description": "Gastronomic capital with Renaissance architecture", "best_time": "April-October", "avg_temp": "12-26°C"}
+                        ]
+                    elif 'italy' in destination_input.lower():
+                        suggested_destinations = [
+                            {"name": "Rome, Italy", "description": "Eternal City with ancient history and incredible cuisine", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
+                            {"name": "Florence, Italy", "description": "Renaissance art and architecture in Tuscany", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
+                            {"name": "Venice, Italy", "description": "Romantic canals and unique island city", "best_time": "April-June, September-October", "avg_temp": "15-25°C"}
+                        ]
+                    elif 'india' in destination_input.lower():
+                        suggested_destinations = [
+                            {"name": "Mumbai, India", "description": "Financial capital with Bollywood glamour and incredible street food", "best_time": "November-March", "avg_temp": "20-32°C"},
+                            {"name": "Delhi, India", "description": "Historic capital with Mughal architecture and vibrant markets", "best_time": "October-March", "avg_temp": "15-30°C"},
+                            {"name": "Goa, India", "description": "Tropical paradise with pristine beaches and Portuguese heritage", "best_time": "November-February", "avg_temp": "23-32°C"}
+                        ]
+                    else:
+                        # Generic popular destinations
+                        suggested_destinations = [
+                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
+                            {"name": "Tokyo, Japan", "description": "Modern metropolis blending tradition with cutting-edge technology", "best_time": "March-May, September-November", "avg_temp": "10-26°C"},
+                            {"name": "New York City, USA", "description": "The city that never sleeps with iconic landmarks", "best_time": "April-June, September-November", "avg_temp": "10-25°C"}
+                        ]
 
             selected_dest = st.radio(
                 f"Based on your interest in '{destination_input}', here are our top recommendations:",
