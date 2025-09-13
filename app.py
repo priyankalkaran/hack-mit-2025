@@ -20,7 +20,7 @@ CORS(app)
 # Initialize services
 geolocator = Nominatim(user_agent="ai-travel-platform")
 translator = Translator()
-openai.api_key = os.getenv('OPENAI_API_KEY')
+openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 class AITravelAgent:
     def __init__(self):
@@ -38,7 +38,7 @@ class AITravelAgent:
     def parse_travel_intent(self, query):
         """Parse natural language travel queries using AI"""
         try:
-            response = openai.ChatCompletion.create(
+            response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a travel intent parser. Extract location, activities, budget, dates, and group size from travel queries. Return JSON format."},
@@ -193,23 +193,89 @@ def ai_travel_query():
     try:
         data = request.json
         query = data.get('query', '')
+        preferences = data.get('preferences', {})
+        
+        # Check if this is a destination recommendation request
+        if 'suggest' in query.lower() and 'destinations' in query.lower():
+            # Use OpenAI to generate destination recommendations
+            destination_input = preferences.get('destination_input', '')
+            
+            # Create a more specific prompt for destination recommendations
+            prompt = f"""
+            The user wants to travel to "{destination_input}". Please suggest 3 specific destinations that match this request.
+            
+            For each destination, provide:
+            - name: The destination name and country
+            - description: A compelling 1-2 sentence description
+            - best_time: Best time to visit (e.g., "April-June, September-October")
+            - avg_temp: Average temperature range (e.g., "15-25°C")
+            
+            Focus on destinations that are relevant to "{destination_input}". If they mentioned a country, suggest cities/regions within that country. If they mentioned a region, suggest specific places in that region.
+            
+            Return the response as a JSON array of objects with the above fields.
+            """
+            
+            try:
+                response = openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a travel expert providing destination recommendations. Always respond with valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7
+                )
+                
+                # Parse the AI response
+                ai_content = response.choices[0].message.content.strip()
+                
+                # Try to extract JSON from the response
+                import json
+                try:
+                    # Remove any markdown formatting
+                    if '```json' in ai_content:
+                        ai_content = ai_content.split('```json')[1].split('```')[0].strip()
+                    elif '```' in ai_content:
+                        ai_content = ai_content.split('```')[1].split('```')[0].strip()
+                    
+                    recommendations = json.loads(ai_content)
+                    
+                    return jsonify({
+                        'success': True,
+                        'query': query,
+                        'recommendations': recommendations
+                    })
+                    
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, return error
+                    return jsonify({
+                        'success': False,
+                        'error': 'Failed to parse AI response',
+                        'raw_response': ai_content
+                    }), 500
+                    
+            except Exception as openai_error:
+                return jsonify({
+                    'success': False,
+                    'error': f'OpenAI API error: {str(openai_error)}'
+                }), 500
+        
+        else:
+            # Original property search functionality
+            intent = ai_agent.parse_travel_intent(query)
+            
+            search_filters = {}
+            if intent.get('activities'):
+                search_filters['activities'] = intent['activities']
 
-        # Parse the travel intent
-        intent = ai_agent.parse_travel_intent(query)
+            properties = airbnb_service.search_properties(search_filters)
 
-        # Search for properties based on parsed intent
-        search_filters = {}
-        if intent.get('activities'):
-            search_filters['activities'] = intent['activities']
-
-        properties = airbnb_service.search_properties(search_filters)
-
-        return jsonify({
-            'success': True,
-            'query': query,
-            'intent': intent,
-            'recommendations': properties[:10]
-        })
+            return jsonify({
+                'success': True,
+                'query': query,
+                'intent': intent,
+                'recommendations': properties[:10]
+            })
+            
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
