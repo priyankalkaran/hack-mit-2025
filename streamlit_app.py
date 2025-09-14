@@ -1,16 +1,16 @@
 import streamlit as st
-import requests
-import json
 import pandas as pd
-from datetime import datetime, date
 import plotly.express as px
+from datetime import date, datetime
+from database import TravelDatabase
 import plotly.graph_objects as go
 from PIL import Image
 import io
+import requests
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="TravelEase - Your AI Travel Companion",
+    page_title="Co-Z - Find your home away from home on your next vacation.", #Your AI Travel Companion",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -21,6 +21,7 @@ API_BASE_URL = "http://localhost:5000/api"
 
 class TravelEaseApp:
     def __init__(self):
+        self.db = TravelDatabase()
         self.init_session_state()
 
     def init_session_state(self):
@@ -28,6 +29,8 @@ class TravelEaseApp:
         # User account and profile
         if 'user_registered' not in st.session_state:
             st.session_state.user_registered = False
+        if 'user_id' not in st.session_state:
+            st.session_state.user_id = None
         if 'user_profile' not in st.session_state:
             st.session_state.user_profile = {}
         if 'user_preferences' not in st.session_state:
@@ -76,10 +79,10 @@ class TravelEaseApp:
         """Render the landing page with user registration"""
         st.markdown("""
         <div style='text-align: center; padding: 2rem 0;'>
-            <h1 style='color: #1E88E5; font-size: 3.5rem; margin-bottom: 1rem;'>🌍 TravelEase</h1>
+            <h1 style='color: #1E88E5; font-size: 3.5rem; margin-bottom: 1rem;'>🌍 Co-Z </h1>
             <h2 style='color: #424242; font-weight: 300; margin-bottom: 2rem;'>Your AI-Powered Travel Companion</h2>
             <p style='font-size: 1.2rem; color: #666; max-width: 600px; margin: 0 auto;'>
-                Plan everything from flights to accommodations, restaurants to experiences - all in one place!
+                Plan your accomodation and everything from flights to restaurants and experiences - all in one place!
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -89,48 +92,85 @@ class TravelEaseApp:
         col1, col2, col3 = st.columns([1, 2, 1])
 
         with col2:
-            st.markdown("### 🚀 Create Your Account")
+            # Add tabs for Login vs Register
+            tab1, tab2 = st.tabs(["🔑 Sign In", "🚀 Create Account"])
 
-            with st.form("user_registration"):
-                st.markdown("**Personal Information**")
-                col_a, col_b = st.columns(2)
+            with tab1:
+                st.markdown("### Welcome Back!")
 
-                with col_a:
-                    first_name = st.text_input("First Name*")
-                    email = st.text_input("Email Address*")
-                    phone = st.text_input("Phone Number")
+                with st.form("user_login"):
+                    email_login = st.text_input("Email Address")
+                    password_login = st.text_input("Password", type="password")
 
-                with col_b:
-                    last_name = st.text_input("Last Name*")
-                    password = st.text_input("Password*", type="password")
+                    login_submitted = st.form_submit_button("Sign In", use_container_width=True)
+
+                    if login_submitted:
+                        if not email_login or not password_login:
+                            st.error("Please enter both email and password")
+                        else:
+                            user = self.db.authenticate_user(email_login, password_login)
+                            if user:
+                                # Load user data into session
+                                st.session_state.user_id = user['id']
+                                st.session_state.user_profile = user
+                                st.session_state.user_registered = True
+
+                                # Load user preferences
+                                preferences = self.db.get_user_preferences(user['id'])
+                                if preferences:
+                                    st.session_state.user_preferences = preferences
+                                    st.session_state.current_step = 'step1'
+                                else:
+                                    st.session_state.current_step = 'preferences'
+
+                                st.success(f"Welcome back, {user['first_name']}!")
+                                st.rerun()
+                            else:
+                                st.error("Invalid email or password")
+
+            with tab2:
+                st.markdown("### Create Your Account")
+
+                with st.form("user_registration"):
+                    st.markdown("**Personal Information**")
+                    col_a, col_b = st.columns(2)
+
+                    with col_a:
+                        first_name = st.text_input("First Name*")
+                        email = st.text_input("Email Address*")
+                        phone = st.text_input("Phone Number")
+
+                    with col_b:
+                        last_name = st.text_input("Last Name*")
+                        password = st.text_input("Password*", type="password")
                     confirm_password = st.text_input("Confirm Password*", type="password")
 
-                date_of_birth = st.date_input("Date of Birth*", min_value=date(1900, 1, 1), max_value=date.today())
-                address = st.text_area("Address")
+                    date_of_birth = st.date_input("Date of Birth*", min_value=date(1900, 1, 1), max_value=date.today())
+                    address = st.text_area("Address")
 
-                col_c, col_d = st.columns(2)
-                with col_c:
-                    city = st.text_input("City*")
-                    country = st.selectbox("Country*", [
-                        "United States", "Canada", "United Kingdom", "Australia", "Germany",
-                        "France", "Spain", "Italy", "Japan", "Other"
-                    ])
+                    col_c, col_d = st.columns(2)
+                    with col_c:
+                        city = st.text_input("City*")
+                        country = st.selectbox("Country*", [
+                            "United States", "Canada", "United Kingdom", "Australia", "Germany",
+                            "France", "Spain", "Italy", "Japan", "Other"
+                        ])
 
-                with col_d:
-                    state_province = st.text_input("State/Province")
-                    postal_code = st.text_input("Postal Code")
+                    with col_d:
+                        state_province = st.text_input("State/Province")
+                        postal_code = st.text_input("Postal Code")
 
-                emergency_contact = st.text_input("Emergency Contact Name")
-                emergency_phone = st.text_input("Emergency Contact Phone")
+                    emergency_contact = st.text_input("Emergency Contact Name")
+                    emergency_phone = st.text_input("Emergency Contact Phone")
 
-                # Account type selection
-                st.markdown("**Account Type**")
-                account_type = st.radio(
-                    "I want to:",
-                    ["Plan and book travel (Traveler)", "List my property for rent (Host)", "Both"]
-                )
+                    # Account type selection
+                    st.markdown("**Account Type**")
+                    account_type = st.radio(
+                        "I want to:",
+                        ["Plan and book travel (Traveler)", "List my property for rent (Host)", "Both"]
+                    )
 
-                submitted = st.form_submit_button("Create Account", use_container_width=True)
+                    submitted = st.form_submit_button("Create Account", use_container_width=True)
 
                 if submitted:
                     if not all([first_name, last_name, email, password, confirm_password, city, country]):
@@ -140,11 +180,12 @@ class TravelEaseApp:
                     elif len(password) < 6:
                         st.error("Password must be at least 6 characters long")
                     else:
-                        # Save user profile
-                        st.session_state.user_profile = {
+                        # Create user in database
+                        user_data = {
                             'first_name': first_name,
                             'last_name': last_name,
                             'email': email,
+                            'password': password,
                             'phone': phone,
                             'date_of_birth': date_of_birth,
                             'address': address,
@@ -157,13 +198,29 @@ class TravelEaseApp:
                             'account_type': account_type
                         }
 
-                        if "Host" in account_type:
-                            st.session_state.is_host = True
+                        user_id = self.db.create_user(user_data)
 
-                        st.session_state.user_registered = True
-                        st.session_state.current_step = 'preferences'
-                        st.success("Account created successfully! Let's learn more about your travel preferences.")
-                        st.rerun()
+                        if user_id:
+                            # Save to session state
+                            st.session_state.user_id = user_id
+                            st.session_state.user_profile = {
+                                'first_name': first_name,
+                                'last_name': last_name,
+                                'email': email,
+                                'city': city,
+                                'country': country,
+                                'account_type': account_type
+                            }
+
+                            if "Host" in account_type:
+                                st.session_state.is_host = True
+
+                            st.session_state.user_registered = True
+                            st.session_state.current_step = 'preferences'
+                            st.success("Account created successfully! Let's learn more about your travel preferences.")
+                            st.rerun()
+                        else:
+                            st.error("Email already exists. Please use a different email address.")
 
     def render_preferences_page(self):
         """Render the user preferences and lifestyle information page"""
@@ -203,8 +260,10 @@ class TravelEaseApp:
                 ])
 
                 accommodation_type = st.multiselect("Preferred accommodation types", [
-                    "Hotels", "Vacation rentals/Airbnb", "Hostels", "Resorts",
-                    "Boutique hotels", "Camping", "Luxury accommodations"
+                    "Hotels", "Entire house", "Apartment", "Condo/Townhouse",
+                    "Private room", "Shared room", "Hostels", "Resorts",
+                    "Boutique hotels", "Bed & Breakfast", "Villa", "Cabin/Cottage",
+                    "Camping", "Luxury accommodations", "Unique stays (treehouse, boat, etc.)"
                 ])
 
                 location_preferences = st.multiselect("Preferred destinations", [
@@ -248,7 +307,7 @@ class TravelEaseApp:
             submitted = st.form_submit_button("Save Preferences & Continue", use_container_width=True)
 
             if submitted:
-                st.session_state.user_preferences = {
+                preferences = {
                     'age_group': age_group,
                     'travel_frequency': travel_frequency,
                     'budget_range': budget_range,
@@ -263,6 +322,11 @@ class TravelEaseApp:
                     'language_preferences': language_preferences
                 }
 
+                # Save to database
+                if st.session_state.user_id:
+                    self.db.save_user_preferences(st.session_state.user_id, preferences)
+
+                st.session_state.user_preferences = preferences
                 st.session_state.current_step = 'step1'
                 st.success("Preferences saved! Let's start planning your perfect trip.")
                 st.rerun()
@@ -340,6 +404,13 @@ class TravelEaseApp:
                     "Unique/Local experience", "Family-friendly", "Romantic setting"
                 ])
 
+                accommodation_type_trip = st.multiselect("Preferred accommodation types for this trip", [
+                    "Hotels", "Entire house", "Apartment", "Condo/Townhouse",
+                    "Private room", "Shared room", "Hostels", "Resorts",
+                    "Boutique hotels", "Bed & Breakfast", "Villa", "Cabin/Cottage",
+                    "Camping", "Luxury accommodations", "Unique stays (treehouse, boat, etc.)"
+                ])
+
                 special_occasions = st.multiselect("Any special occasions?", [
                     "None", "Birthday", "Anniversary", "Honeymoon", "Graduation",
                     "Retirement", "Holiday celebration", "Business milestone"
@@ -367,6 +438,7 @@ class TravelEaseApp:
                         'trip_style': trip_style,
                         'must_have_activities': must_have_activities,
                         'accommodation_preference': accommodation_preference,
+                        'accommodation_type_trip': accommodation_type_trip,
                         'special_occasions': special_occasions,
                         'additional_wishes': additional_wishes
                     }
@@ -382,34 +454,34 @@ class TravelEaseApp:
 
         # Show AI-generated destination suggestions based on user input
         destination_input = st.session_state.travel_plans.get('destination_input', '')
-        
+
         col1, col2 = st.columns([2, 1])
-        
+
         with col1:
             st.markdown("### 🎯 Destination Recommendations")
-            
+
             # Get AI-powered destination suggestions from Flask backend
             with st.spinner("🤖 Getting AI-powered destination recommendations..."):
                 # Prepare the travel preferences for the AI (convert dates to strings for JSON serialization)
                 travel_plans_serializable = dict(st.session_state.travel_plans)
                 if 'travel_dates' in travel_plans_serializable:
                     travel_plans_serializable['travel_dates'] = [
-                        date.isoformat() if hasattr(date, 'isoformat') else str(date) 
+                        date.isoformat() if hasattr(date, 'isoformat') else str(date)
                         for date in travel_plans_serializable['travel_dates']
                     ]
-                
+
                 travel_preferences = {
                     'destination_input': destination_input,
                     'user_preferences': st.session_state.user_preferences,
                     'travel_plans': travel_plans_serializable
                 }
-                
+
                 # Call the Flask backend for AI recommendations
                 ai_result = self.make_api_request("/ai-agent", {
                     "query": f"I want to travel to {destination_input}. Suggest 3 specific destinations with details including name, description, best time to visit, and average temperature.",
                     "preferences": travel_preferences
                 })
-                
+
                 if ai_result and ai_result.get('success') and ai_result.get('recommendations'):
                     # Use AI-generated recommendations
                     suggested_destinations = []
@@ -426,47 +498,154 @@ class TravelEaseApp:
                     st.warning("AI recommendations unavailable. Using curated suggestions.")
                     if 'france' in destination_input.lower():
                         suggested_destinations = [
-                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                            {"name": "Nice, France", "description": "French Riviera with stunning beaches and Mediterranean charm", "best_time": "May-September", "avg_temp": "18-28°C"},
-                            {"name": "Lyon, France", "description": "Gastronomic capital with Renaissance architecture", "best_time": "April-October", "avg_temp": "12-26°C"}
+                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C", "image_url": "https://images.unsplash.com/photo-1502602898536-47ad22581b52?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Nice, France", "description": "French Riviera with stunning beaches and Mediterranean charm", "best_time": "May-September", "avg_temp": "18-28°C", "image_url": "https://images.unsplash.com/photo-1539650116574-75c0c6d73f6e?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Lyon, France", "description": "Gastronomic capital with Renaissance architecture", "best_time": "April-October", "avg_temp": "12-26°C", "image_url": "https://images.unsplash.com/photo-1524396309943-e03f5249f002?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"}
                         ]
                     elif 'italy' in destination_input.lower():
                         suggested_destinations = [
-                            {"name": "Rome, Italy", "description": "Eternal City with ancient history and incredible cuisine", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                            {"name": "Florence, Italy", "description": "Renaissance art and architecture in Tuscany", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                            {"name": "Venice, Italy", "description": "Romantic canals and unique island city", "best_time": "April-June, September-October", "avg_temp": "15-25°C"}
+                            {"name": "Rome, Italy", "description": "Eternal City with ancient history and incredible cuisine", "best_time": "April-June, September-October", "avg_temp": "15-25°C", "image_url": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Florence, Italy", "description": "Renaissance art and architecture in Tuscany", "best_time": "April-June, September-October", "avg_temp": "15-25°C", "image_url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Venice, Italy", "description": "Romantic canals and unique island city", "best_time": "April-June, September-October", "avg_temp": "15-25°C", "image_url": "https://images.unsplash.com/photo-1514890547357-a9ee288728e0?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"}
                         ]
                     elif 'india' in destination_input.lower():
                         suggested_destinations = [
-                            {"name": "Mumbai, India", "description": "Financial capital with Bollywood glamour and incredible street food", "best_time": "November-March", "avg_temp": "20-32°C"},
-                            {"name": "Delhi, India", "description": "Historic capital with Mughal architecture and vibrant markets", "best_time": "October-March", "avg_temp": "15-30°C"},
-                            {"name": "Goa, India", "description": "Tropical paradise with pristine beaches and Portuguese heritage", "best_time": "November-February", "avg_temp": "23-32°C"}
+                            {"name": "Mumbai, India", "description": "Financial capital with Bollywood glamour and incredible street food", "best_time": "November-March", "avg_temp": "20-32°C", "image_url": "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Delhi, India", "description": "Historic capital with Mughal architecture and vibrant markets", "best_time": "October-March", "avg_temp": "15-30°C", "image_url": "https://images.unsplash.com/photo-1587474260584-136574528ed5?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Goa, India", "description": "Tropical paradise with pristine beaches and Portuguese heritage", "best_time": "November-February", "avg_temp": "23-32°C", "image_url": "https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"}
                         ]
                     else:
                         # Generic popular destinations
                         suggested_destinations = [
-                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C"},
-                            {"name": "Tokyo, Japan", "description": "Modern metropolis blending tradition with cutting-edge technology", "best_time": "March-May, September-November", "avg_temp": "10-26°C"},
-                            {"name": "New York City, USA", "description": "The city that never sleeps with iconic landmarks", "best_time": "April-June, September-November", "avg_temp": "10-25°C"}
+                            {"name": "Paris, France", "description": "City of Light with world-class museums, cuisine, and romance", "best_time": "April-June, September-October", "avg_temp": "15-25°C", "image_url": "https://images.unsplash.com/photo-1502602898536-47ad22581b52?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "Tokyo, Japan", "description": "Modern metropolis blending tradition with cutting-edge technology", "best_time": "March-May, September-November", "avg_temp": "10-26°C", "image_url": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"},
+                            {"name": "New York City, USA", "description": "The city that never sleeps with iconic landmarks", "best_time": "April-June, September-November", "avg_temp": "10-25°C", "image_url": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"}
                         ]
 
-            selected_dest = st.radio(
-                f"Based on your interest in '{destination_input}', here are our top recommendations:",
-                options=[dest["name"] for dest in suggested_destinations],
-                format_func=lambda x: f"📍 {x}"
-            )
+            # Initialize swipe session state
+            if 'current_destination_index' not in st.session_state:
+                st.session_state.current_destination_index = 0
+            if 'liked_destinations' not in st.session_state:
+                st.session_state.liked_destinations = []
+            if 'rejected_destinations' not in st.session_state:
+                st.session_state.rejected_destinations = []
 
-            # Show details of selected destination
-            selected_dest_info = next(dest for dest in suggested_destinations if dest["name"] == selected_dest)
+            # Check if we have destinations to show
+            if st.session_state.current_destination_index < len(suggested_destinations):
+                current_dest = suggested_destinations[st.session_state.current_destination_index]
 
-            st.info(f"""
-            **{selected_dest_info['name']}**
+                # Create swipe card interface
+                st.markdown("### 💫 Swipe to Choose Your Destination")
+                st.markdown("❤️ **Swipe Right (Like)** if you're interested | 💔 **Swipe Left (Pass)** if not for you")
 
-            {selected_dest_info['description']}
+                # Destination card
+                with st.container():
+                    # Get image URL, fallback to a default if not available
+                    image_url = current_dest.get('image_url', 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80')
 
-            🌡️ **Average Temperature:** {selected_dest_info['avg_temp']}
-            📅 **Best Time to Visit:** {selected_dest_info['best_time']}
-            """)
+                    # Display image using Streamlit's native method
+                    st.image(image_url, width=400)
+
+                    st.markdown(f"""
+                    <div style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 2rem;
+                        border-radius: 0 0 20px 20px;
+                        color: white;
+                        text-align: center;
+                        margin-top: -5px;
+                    ">
+                        <h2 style="margin: 0 0 1rem 0; font-size: 2rem;">📍 {current_dest['name']}</h2>
+                        <p style="font-size: 1.2rem; margin: 1rem 0; line-height: 1.6;">{current_dest['description']}</p>
+                        <div style="display: flex; justify-content: space-around; margin-top: 1.5rem; flex-wrap: wrap;">
+                            <div style="margin: 0.5rem;">
+                                <strong>🌡️ Temperature:</strong><br>{current_dest['avg_temp']}
+                            </div>
+                            <div style="margin: 0.5rem;">
+                                <strong>📅 Best Time:</strong><br>{current_dest['best_time']}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # Swipe buttons
+                col_left, col_center, col_right = st.columns([1, 1, 1])
+
+                with col_left:
+                    if st.button("👎 Pass", use_container_width=True, type="secondary"):
+                        st.session_state.rejected_destinations.append(current_dest)
+                        st.session_state.current_destination_index += 1
+                        st.rerun()
+
+                with col_right:
+                    if st.button("❤️ Like", use_container_width=True, type="primary"):
+                        st.session_state.liked_destinations.append(current_dest)
+                        st.session_state.current_destination_index += 1
+                        st.rerun()
+
+                # Progress indicator
+                progress = (st.session_state.current_destination_index + 1) / len(suggested_destinations)
+                st.progress(progress)
+                st.caption(f"Destination {st.session_state.current_destination_index + 1} of {len(suggested_destinations)}")
+
+            else:
+                # Show results after swiping through all destinations
+                st.markdown("### 🎉 Swipe Complete!")
+
+                if st.session_state.liked_destinations:
+                    st.markdown("#### ❤️ Your Liked Destinations:")
+                    for dest in st.session_state.liked_destinations:
+                        with st.expander(f"📍 {dest['name']}", expanded=True):
+                            st.write(dest['description'])
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"🌡️ **Temperature:** {dest['avg_temp']}")
+                            with col2:
+                                st.write(f"📅 **Best Time:** {dest['best_time']}")
+
+                    # Let user select final destination from liked ones
+                    st.markdown("#### 🎯 Choose Your Final Destination:")
+                    selected_dest_name = st.selectbox(
+                        "Which destination would you like to visit?",
+                        options=[dest["name"] for dest in st.session_state.liked_destinations],
+                        format_func=lambda x: f"📍 {x}"
+                    )
+                    selected_dest_info = next(dest for dest in st.session_state.liked_destinations if dest["name"] == selected_dest_name)
+
+                else:
+                    st.warning("You didn't like any destinations! Let's try again with different options.")
+                    if st.button("🔄 Reset and Try Again"):
+                        st.session_state.current_destination_index = 0
+                        st.session_state.liked_destinations = []
+                        st.session_state.rejected_destinations = []
+                        st.rerun()
+                    return
+
+                # Reset button
+                if st.button("🔄 Start Over with Swipes"):
+                    st.session_state.current_destination_index = 0
+                    st.session_state.liked_destinations = []
+                    st.session_state.rejected_destinations = []
+                    st.rerun()
+
+            # Set variables for the navigation section
+            if st.session_state.liked_destinations and st.session_state.current_destination_index >= len(suggested_destinations):
+                # User has completed swiping and selected a final destination
+                selected_dest = selected_dest_name
+                selected_dest_info = next(dest for dest in st.session_state.liked_destinations if dest["name"] == selected_dest_name)
+
+                st.info(f"""
+                **{selected_dest_info['name']}**
+
+                {selected_dest_info['description']}
+
+                🌡️ **Average Temperature:** {selected_dest_info['avg_temp']}
+                📅 **Best Time to Visit:** {selected_dest_info['best_time']}
+                """)
+            else:
+                # User is still swiping or hasn't liked any destinations
+                selected_dest = None
+                selected_dest_info = None
 
         with col2:
             st.markdown("### 📅 Timeframe Details")
@@ -497,95 +676,84 @@ class TravelEaseApp:
                 st.rerun()
 
         with col4:
-            if st.button("Continue to Transportation →", use_container_width=True):
-                st.session_state.selected_destination = {
-                    'name': selected_dest,
-                    'info': selected_dest_info,
-                    'dates': new_dates if modify_dates else travel_dates,
-                    'duration': new_duration if modify_dates else trip_duration
-                }
-                st.session_state.current_step = 'step3'
-                st.success(f"Destination set: {selected_dest}")
-                st.rerun()
-
-    def render_step3_transportation(self):
-        """Step 3: Transportation/How to get there"""
-        st.markdown("## ✈️ Step 3: How to Get There")
-        st.markdown("Let's find the best way to reach your destination!")
-
-        destination = st.session_state.selected_destination.get('name', 'your destination')
-        user_location = f"{st.session_state.user_profile.get('city', '')}, {st.session_state.user_profile.get('country', '')}"
-
-        st.markdown(f"**From:** {user_location}")
-        st.markdown(f"**To:** {destination}")
-
-        tab1, tab2, tab3 = st.tabs(["✈️ Flights", "🚗 Ground Transport", "🚢 Other Options"])
-
-        with tab1:
-            st.markdown("### Flight Options")
-
-            # Mock flight data
-            flights = [
-                {"airline": "Delta Airlines", "departure": "8:00 AM", "arrival": "2:30 PM", "duration": "6h 30m", "stops": "Direct", "price": "$450", "class": "Economy"},
-                {"airline": "United Airlines", "departure": "11:15 AM", "arrival": "6:45 PM", "duration": "7h 30m", "stops": "1 stop", "price": "$380", "class": "Economy"},
-                {"airline": "Air France", "departure": "6:30 PM", "arrival": "11:00 AM+1", "duration": "8h 30m", "stops": "Direct", "price": "$650", "class": "Business"}
-            ]
-
-            selected_flight = st.radio("Choose your flight:", options=range(len(flights)), format_func=lambda i: f"{flights[i]['airline']} - {flights[i]['departure']} to {flights[i]['arrival']} ({flights[i]['duration']}) - {flights[i]['price']}")
-
-            flight_details = flights[selected_flight]
-            st.info(f"""
-            **Selected Flight Details:**
-            - **Airline:** {flight_details['airline']}
-            - **Departure:** {flight_details['departure']}
-            - **Arrival:** {flight_details['arrival']}
-            - **Duration:** {flight_details['duration']}
-            - **Stops:** {flight_details['stops']}
-            - **Class:** {flight_details['class']}
-            - **Price:** {flight_details['price']}
-            """)
-
-        with tab2:
-            st.markdown("### Ground Transportation at Destination")
-
-            transport_options = st.multiselect("Select transportation methods you'd like to use:", [
-                "Airport shuttle", "Taxi/Uber", "Public transportation", "Rental car",
-                "Hotel transfer", "Private driver", "Walking", "Bicycle rental"
-            ])
-
-            if "Rental car" in transport_options:
-                car_type = st.selectbox("Preferred car type:", ["Economy", "Compact", "Mid-size", "Full-size", "SUV", "Luxury"])
-                st.write(f"Car rental estimate: $35-85/day for {car_type}")
-
-        with tab3:
-            st.markdown("### Alternative Transportation")
-
-            other_options = st.multiselect("Other transportation options:", [
-                "Train", "Bus", "Ferry", "Cruise", "Private jet", "Road trip"
-            ])
-
-            if other_options:
-                st.write("We'll research these options and include them in your itinerary!")
-
-        st.markdown("---")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("← Back to Destination", use_container_width=True):
-                st.session_state.current_step = 'step2'
-                st.rerun()
-
-        with col2:
             if st.button("Continue to Accommodation →", use_container_width=True):
-                st.session_state.selected_transport = {
-                    'flight': flights[selected_flight],
-                    'ground_transport': transport_options,
-                    'other_options': other_options
-                }
-                st.session_state.current_step = 'step4'
-                st.success("Transportation options saved!")
-                st.rerun()
+                if selected_dest and selected_dest_info:
+                    st.session_state.selected_destination = {
+                        'name': selected_dest,
+                        'info': selected_dest_info,
+                        'dates': new_dates if 'new_dates' in locals() and modify_dates else travel_dates,
+                        'duration': new_duration if 'new_duration' in locals() and modify_dates else trip_duration
+                    }
+                    st.session_state.current_step = 'step3'
+                    st.success(f"Destination set: {selected_dest}")
+                    st.rerun()
+                else:
+                    st.error("Please complete the destination selection by swiping through all options and choosing a final destination.")
+
+    # COMMENTED OUT - Step 3: Transportation/How to get there
+    def render_step3_transportation(self):
+        """Step 3: Transportation/How to get there - COMMENTED OUT"""
+        # Automatically skip to accommodation without showing any UI
+        st.session_state.selected_transport = {}
+        st.session_state.current_step = 'step4'
+        st.rerun()
+
+        # COMMENTED OUT - All transportation content
+        # destination = st.session_state.selected_destination.get('name', 'your destination')
+        # user_location = f"{st.session_state.user_profile.get('city', '')}, {st.session_state.user_profile.get('country', '')}"
+
+        # st.markdown(f"**From:** {user_location}")
+        # st.markdown(f"**To:** {destination}")
+
+        # # tab1, tab2, tab3 = st.tabs(["✈️ Flights", "🚗 Ground Transport", "🚢 Other Options"])
+        # tab1, tab2 = st.tabs(["🚗 Ground Transport", "🚢 Other Options"])
+
+        # # COMMENTED OUT - Flight Options
+        # # with tab1:
+        # #     st.markdown("### Flight Options")
+
+        # #     # Mock flight data
+        # #     flights = [
+        # #         {"airline": "Delta Airlines", "departure": "8:00 AM", "arrival": "2:30 PM", "duration": "6h 30m", "stops": "Direct", "price": "$450", "class": "Economy"},
+        # #         {"airline": "United Airlines", "departure": "11:15 AM", "arrival": "6:45 PM", "duration": "7h 30m", "stops": "1 stop", "price": "$380", "class": "Economy"},
+        # #         {"airline": "Air France", "departure": "6:30 PM", "arrival": "11:00 AM+1", "duration": "8h 30m", "stops": "Direct", "price": "$650", "class": "Business"}
+        # #     ]
+
+        # #     selected_flight = st.radio("Choose your flight:", options=range(len(flights)), format_func=lambda i: f"{flights[i]['airline']} - {flights[i]['departure']} to {flights[i]['arrival']} ({flights[i]['duration']}) - {flights[i]['price']}")
+
+        # #     flight_details = flights[selected_flight]
+        # #     st.info(f"""
+        # #     **Selected Flight Details:**
+        # #     - **Airline:** {flight_details['airline']}
+        # #     - **Departure:** {flight_details['departure']}
+        # #     - **Arrival:** {flight_details['arrival']}
+        # #     - **Duration:** {flight_details['duration']}
+        # #     - **Stops:** {flight_details['stops']}
+        # #     - **Class:** {flight_details['class']}
+        # #     - **Price:** {flight_details['price']}
+        # #     """)
+
+        # with tab1:
+        #     st.markdown("### Ground Transportation at Destination")
+
+        #     transport_options = st.multiselect("Select transportation methods you'd like to use:", [
+        #         "Airport shuttle", "Taxi/Uber", "Public transportation", "Rental car",
+        #         "Hotel transfer", "Private driver", "Walking", "Bicycle rental"
+        #     ])
+
+        #     if "Rental car" in transport_options:
+        #         car_type = st.selectbox("Preferred car type:", ["Economy", "Compact", "Mid-size", "Full-size", "SUV", "Luxury"])
+        #         st.write(f"Car rental estimate: $35-85/day for {car_type}")
+
+        # with tab2:
+        #     st.markdown("### Alternative Transportation")
+
+        #     other_options = st.multiselect("Other transportation options:", [
+        #         "Train", "Bus", "Ferry", "Cruise", "Private jet", "Road trip"
+        #     ])
+
+        #     if other_options:
+        #         st.write("We'll research these options and include them in your itinerary!")
 
     def render_step4_accommodation(self):
         """Step 4: Accommodation (Airbnb-style)"""
@@ -616,9 +784,7 @@ class TravelEaseApp:
             "Wheelchair accessible", "Laptop-friendly workspace", "TV", "Fireplace"
         ])
 
-        # Mock property listings
-        st.markdown("### 🏡 Available Properties")
-
+        # Generate more diverse property options with images
         properties = [
             {
                 "title": "Cozy Downtown Apartment",
@@ -632,7 +798,8 @@ class TravelEaseApp:
                 "amenities": ["WiFi", "Kitchen", "Air conditioning", "Washing machine"],
                 "description": "Beautiful apartment in the heart of the city, walking distance to major attractions.",
                 "host": "Sarah M.",
-                "superhost": True
+                "superhost": True,
+                "image_url": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
             },
             {
                 "title": "Luxury Villa with Pool",
@@ -646,7 +813,8 @@ class TravelEaseApp:
                 "amenities": ["WiFi", "Kitchen", "Pool", "Hot tub", "Parking", "Air conditioning"],
                 "description": "Stunning villa with private pool and garden, perfect for families or groups.",
                 "host": "Michael R.",
-                "superhost": True
+                "superhost": True,
+                "image_url": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
             },
             {
                 "title": "Budget-Friendly Private Room",
@@ -660,53 +828,186 @@ class TravelEaseApp:
                 "amenities": ["WiFi", "Shared kitchen", "Air conditioning"],
                 "description": "Clean and comfortable private room with friendly hosts.",
                 "host": "Anna L.",
-                "superhost": False
+                "superhost": False,
+                "image_url": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
+            },
+            {
+                "title": "Modern Loft with City Views",
+                "type": "Entire loft",
+                "guests": 6,
+                "bedrooms": 3,
+                "bathrooms": 2,
+                "price": 180,
+                "rating": 4.7,
+                "reviews": 156,
+                "amenities": ["WiFi", "Kitchen", "Gym", "Parking", "TV", "Workspace"],
+                "description": "Stylish loft with panoramic city views and modern amenities.",
+                "host": "David K.",
+                "superhost": True,
+                "image_url": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
+            },
+            {
+                "title": "Charming Cottage Retreat",
+                "type": "Entire cottage",
+                "guests": 4,
+                "bedrooms": 2,
+                "bathrooms": 1,
+                "price": 120,
+                "rating": 4.9,
+                "reviews": 78,
+                "amenities": ["WiFi", "Kitchen", "Fireplace", "Garden", "Pet-friendly"],
+                "description": "Peaceful cottage surrounded by nature, perfect for a relaxing getaway.",
+                "host": "Emma T.",
+                "superhost": False,
+                "image_url": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
             }
         ]
 
-        for i, prop in enumerate(properties):
+        # Initialize swipe session state for accommodations
+        if 'current_accommodation_index' not in st.session_state:
+            st.session_state.current_accommodation_index = 0
+        if 'liked_accommodations' not in st.session_state:
+            st.session_state.liked_accommodations = []
+        if 'rejected_accommodations' not in st.session_state:
+            st.session_state.rejected_accommodations = []
+
+        # Check if we have accommodations to show
+        if st.session_state.current_accommodation_index < len(properties):
+            current_prop = properties[st.session_state.current_accommodation_index]
+
+            # Create swipe card interface for accommodations
+            st.markdown("### 🏠 Swipe to Choose Your Accommodation")
+            st.markdown("❤️ **Swipe Right (Like)** if you want to stay here | 💔 **Swipe Left (Pass)** if not for you")
+                        # Property card
             with st.container():
-                col_a, col_b, col_c = st.columns([2, 2, 1])
+                amenities_display = ", ".join(current_prop['amenities'][:4])
+                if len(current_prop['amenities']) > 4:
+                    amenities_display += f" + {len(current_prop['amenities']) - 4} more"
 
+                superhost_badge = "🏆 Superhost" if current_prop['superhost'] else ""
+
+                # Display image using Streamlit's native method
+                st.image(current_prop['image_url'], width=300)
+
+                # Use a simpler approach with native Streamlit components
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%); padding: 2rem; border-radius: 0 0 20px 20px; margin-top: -5px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Use native Streamlit components for content
+                col_title, col_price = st.columns([3, 1])
+                with col_title:
+                    st.markdown(f"### 🏠 {current_prop['title']}")
+                with col_price:
+                    st.markdown(f"**${current_prop['price']}** per night")
+
+                st.markdown(f"*{current_prop['description']}*")
+
+                # Property details in columns
+                col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    st.markdown(f"**{prop['title']}**")
-                    st.write(f"🏠 {prop['type']} • 👥 {prop['guests']} guests • 🛏️ {prop['bedrooms']} bedrooms")
-                    st.write(f"⭐ {prop['rating']} ({prop['reviews']} reviews)")
-                    if prop['superhost']:
-                        st.markdown("🏆 **Superhost**")
-
+                    st.markdown(f"**🏠 Type:** {current_prop['type']}")
+                    st.markdown(f"**👥 Guests:** {current_prop['guests']} people")
                 with col_b:
-                    st.write(prop['description'])
-                    st.write(f"**Host:** {prop['host']}")
-                    amenities_text = ", ".join(prop['amenities'][:4])
-                    if len(prop['amenities']) > 4:
-                        amenities_text += f" + {len(prop['amenities']) - 4} more"
-                    st.write(f"**Amenities:** {amenities_text}")
-
+                    st.markdown(f"**🛏️ Bedrooms:** {current_prop['bedrooms']}")
+                    st.markdown(f"**🚿 Bathrooms:** {current_prop['bathrooms']}")
                 with col_c:
-                    st.markdown(f"### ${prop['price']}")
-                    st.write("per night")
-                    if st.button(f"Select", key=f"select_prop_{i}", use_container_width=True):
-                        st.session_state.selected_accommodation = prop
-                        st.success(f"Selected: {prop['title']}")
+                    st.markdown(f"**⭐ Rating:** {current_prop['rating']} ({current_prop['reviews']} reviews)")
+                    st.markdown(f"**🏡 Host:** {current_prop['host']} {superhost_badge}")
 
-                st.markdown("---")
+                st.markdown(f"**🛋️ Amenities:** {amenities_display}")
+
+            # Swipe buttons
+            col_left, col_center, col_right = st.columns([1, 1, 1])
+
+            with col_left:
+                if st.button("👎 Pass", use_container_width=True, type="secondary", key="accommodation_pass"):
+                    st.session_state.rejected_accommodations.append(current_prop)
+                    st.session_state.current_accommodation_index += 1
+                    st.rerun()
+
+            with col_right:
+                if st.button("❤️ Like", use_container_width=True, type="primary", key="accommodation_like"):
+                    st.session_state.liked_accommodations.append(current_prop)
+                    st.session_state.current_accommodation_index += 1
+                    st.rerun()
+
+            # Progress indicator
+            progress = (st.session_state.current_accommodation_index + 1) / len(properties)
+            st.progress(progress)
+            st.caption(f"Property {st.session_state.current_accommodation_index + 1} of {len(properties)}")
+
+        else:
+            # Show results after swiping through all accommodations
+            st.markdown("### 🎉 Swipe Complete!")
+
+            if st.session_state.liked_accommodations:
+                st.markdown("#### ❤️ Your Liked Accommodations:")
+                for prop in st.session_state.liked_accommodations:
+                    with st.expander(f"🏠 {prop['title']} - ${prop['price']}/night", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(prop['description'])
+                            st.write(f"**Host:** {prop['host']}")
+                            if prop['superhost']:
+                                st.write("🏆 **Superhost**")
+                        with col2:
+                            st.write(f"🏠 **Type:** {prop['type']}")
+                            st.write(f"👥 **Guests:** {prop['guests']} people")
+                            st.write(f"🛏️ **Bedrooms:** {prop['bedrooms']}")
+                            st.write(f"⭐ **Rating:** {prop['rating']} ({prop['reviews']} reviews)")
+
+                # Let user select final accommodation from liked ones
+                st.markdown("#### 🎯 Choose Your Final Accommodation:")
+                selected_accommodation_title = st.selectbox(
+                    "Which property would you like to book?",
+                    options=[prop["title"] for prop in st.session_state.liked_accommodations],
+                    format_func=lambda x: f"🏠 {x}"
+                )
+                selected_accommodation = next(prop for prop in st.session_state.liked_accommodations if prop["title"] == selected_accommodation_title)
+
+            else:
+                st.warning("You didn't like any accommodations! Let's try again with different options.")
+                if st.button("🔄 Reset and Try Again", key="accommodation_reset"):
+                    st.session_state.current_accommodation_index = 0
+                    st.session_state.liked_accommodations = []
+                    st.session_state.rejected_accommodations = []
+                    st.rerun()
+                return
+
+            # Reset button
+            if st.button("🔄 Start Over with Swipes", key="accommodation_restart"):
+                st.session_state.current_accommodation_index = 0
+                st.session_state.liked_accommodations = []
+                st.session_state.rejected_accommodations = []
+                st.rerun()
+
+        # Set variables for the navigation section
+        if st.session_state.liked_accommodations and st.session_state.current_accommodation_index >= len(properties):
+            # User has completed swiping and selected a final accommodation
+            st.session_state.selected_accommodation = selected_accommodation
+
+            st.success(f"✅ Selected: {selected_accommodation['title']} - ${selected_accommodation['price']}/night")
+        else:
+            # User is still swiping or hasn't liked any accommodations
+            selected_accommodation = None
 
         # Navigation buttons
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("← Back to Transportation", use_container_width=True):
+            if st.button("← Back to Accommodation", use_container_width=True):
                 st.session_state.current_step = 'step3'
                 st.rerun()
 
         with col2:
             if st.button("Continue to Dining →", use_container_width=True):
-                if st.session_state.selected_accommodation:
+                if selected_accommodation:
                     st.session_state.current_step = 'step5'
                     st.rerun()
                 else:
-                    st.error("Please select an accommodation first!")
+                    st.error("Please complete the accommodation selection by swiping through all options and choosing a final property.")
 
     def render_host_interface(self):
         """Host interface for adding and managing properties"""
@@ -973,18 +1274,111 @@ class TravelEaseApp:
 
         st.markdown("---")
 
-        col1, col2 = st.columns(2)
+        # Show different buttons based on login status
+        if st.session_state.get('user_registered', False) and st.session_state.get('user_id', None):
+            # Logged in users get the complete trip planning button
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            if st.button("← Back to Accommodation", use_container_width=True):
-                st.session_state.current_step = 'step4'
-                st.rerun()
+            with col1:
+                if st.button("← Back to Accommodation", use_container_width=True):
+                    st.session_state.current_step = 'step4'
+                    st.rerun()
 
-        with col2:
-            if st.button("Continue to Experiences →", use_container_width=True):
-                st.session_state.selected_restaurants = selected_restaurants
-                st.session_state.current_step = 'step6'
-                st.success(f"Added {len(selected_restaurants)} restaurants to your itinerary!")
+            with col2:
+                if st.button("🎉 Complete Trip Planning", use_container_width=True, key="complete_trip_step5"):
+                    # Save restaurants and go directly to final itinerary
+                    st.session_state.selected_restaurants = selected_restaurants
+
+                    # Save travel plan to database
+                    if st.session_state.user_id:
+                        # Convert dates to strings for JSON serialization
+                        travel_dates = st.session_state.travel_plans.get('travel_dates', {})
+                        if isinstance(travel_dates, dict):
+                            travel_dates_str = {}
+                            for key, value in travel_dates.items():
+                                if hasattr(value, 'strftime'):  # Check if it's a date object
+                                    travel_dates_str[key] = value.strftime('%Y-%m-%d')
+                                else:
+                                    travel_dates_str[key] = str(value)
+                        else:
+                            travel_dates_str = str(travel_dates)
+
+                        travel_plan = {
+                            'destination': st.session_state.travel_plans.get('destination', 'Unknown'),
+                            'travel_dates': travel_dates_str,
+                            'accommodation': st.session_state.travel_plans.get('selected_accommodation', {}),
+                            'transport': st.session_state.travel_plans.get('selected_transport', {}),
+                            'restaurants': selected_restaurants,
+                            'experiences': [],  # No experiences selected yet
+                            'budget': st.session_state.travel_plans.get('budget', 0),
+                            'travelers': st.session_state.travel_plans.get('travelers', 1),
+                            'trip_type': st.session_state.travel_plans.get('trip_type', 'Leisure'),
+                            'accommodation_preference': st.session_state.travel_plans.get('accommodation_preference', [])
+                        }
+
+                        self.db.save_travel_plan(
+                            st.session_state.user_id,
+                            f"Trip to {travel_plan['destination']}",
+                            travel_plan['destination'],
+                            travel_dates_str,
+                            travel_plan
+                        )
+
+                    st.session_state.current_step = 'step7'
+                    st.rerun()
+
+            with col3:
+                if st.button("Continue to Experiences →", use_container_width=True):
+                    st.session_state.selected_restaurants = selected_restaurants
+                    st.session_state.current_step = 'step6'
+                    st.success(f"Added {len(selected_restaurants)} restaurants to your itinerary!")
+                    st.rerun()
+        else:
+            # Non-logged in users get the regular flow
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("← Back to Accommodation", use_container_width=True):
+                    st.session_state.current_step = 'step4'
+                    st.rerun()
+
+            with col2:
+                if st.button("Continue to Experiences →", use_container_width=True):
+                    st.session_state.selected_restaurants = selected_restaurants
+                    st.session_state.current_step = 'step6'
+                    st.success(f"Added {len(selected_restaurants)} restaurants to your itinerary!")
+                    st.rerun()
+
+            # Show login prompt and plan new trip option
+            st.info("🔐 Sign in to save your trip and access booking features!")
+
+            # Plan New Trip button for non-logged users too
+            if st.button("🔄 Plan New Trip", use_container_width=True, key="plan_new_trip_step5"):
+                # Reset all travel planning session state
+                st.session_state.current_step = 'step1'
+                st.session_state.travel_plans = {}
+                st.session_state.selected_destination = {}
+                st.session_state.selected_transport = {}
+                st.session_state.selected_accommodation = {}
+                st.session_state.selected_restaurants = []
+                st.session_state.selected_experiences = []
+                st.session_state.final_itinerary = {}
+
+                # Reset swipe states
+                if 'current_destination_index' in st.session_state:
+                    del st.session_state.current_destination_index
+                if 'liked_destinations' in st.session_state:
+                    del st.session_state.liked_destinations
+                if 'rejected_destinations' in st.session_state:
+                    del st.session_state.rejected_destinations
+                if 'current_accommodation_index' in st.session_state:
+                    del st.session_state.current_accommodation_index
+                if 'liked_accommodations' in st.session_state:
+                    del st.session_state.liked_accommodations
+                if 'rejected_accommodations' in st.session_state:
+                    del st.session_state.rejected_accommodations
+
+                st.success("Ready to plan your next adventure!")
                 st.rerun()
 
     def render_step6_experiences(self):
@@ -1047,18 +1441,111 @@ class TravelEaseApp:
 
         st.markdown("---")
 
-        col1, col2 = st.columns(2)
+        # Show different buttons based on login status
+        if st.session_state.get('user_registered', False) and st.session_state.get('user_id', None):
+            # Logged in users get the complete trip planning button
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            if st.button("← Back to Dining", use_container_width=True):
-                st.session_state.current_step = 'step5'
-                st.rerun()
+            with col1:
+                if st.button("← Back to Dining", use_container_width=True):
+                    st.session_state.current_step = 'step5'
+                    st.rerun()
 
-        with col2:
-            if st.button("Create My Itinerary →", use_container_width=True):
-                st.session_state.selected_experiences = selected_experiences
-                st.session_state.current_step = 'step7'
-                st.success(f"Added {len(selected_experiences)} experiences to your trip!")
+            with col2:
+                if st.button("🎉 Complete Trip Planning", use_container_width=True, key="complete_trip_step6"):
+                    # Save experiences and go directly to final itinerary
+                    st.session_state.selected_experiences = selected_experiences
+
+                    # Save travel plan to database
+                    if st.session_state.user_id:
+                        # Convert dates to strings for JSON serialization
+                        travel_dates = st.session_state.travel_plans.get('travel_dates', {})
+                        if isinstance(travel_dates, dict):
+                            travel_dates_str = {}
+                            for key, value in travel_dates.items():
+                                if hasattr(value, 'strftime'):  # Check if it's a date object
+                                    travel_dates_str[key] = value.strftime('%Y-%m-%d')
+                                else:
+                                    travel_dates_str[key] = str(value)
+                        else:
+                            travel_dates_str = str(travel_dates)
+
+                        travel_plan = {
+                            'destination': st.session_state.travel_plans.get('destination', 'Unknown'),
+                            'travel_dates': travel_dates_str,
+                            'accommodation': st.session_state.travel_plans.get('selected_accommodation', {}),
+                            'transport': st.session_state.travel_plans.get('selected_transport', {}),
+                            'restaurants': st.session_state.get('selected_restaurants', []),
+                            'experiences': selected_experiences,
+                            'budget': st.session_state.travel_plans.get('budget', 0),
+                            'travelers': st.session_state.travel_plans.get('travelers', 1),
+                            'trip_type': st.session_state.travel_plans.get('trip_type', 'Leisure'),
+                            'accommodation_preference': st.session_state.travel_plans.get('accommodation_preference', [])
+                        }
+
+                        self.db.save_travel_plan(
+                            st.session_state.user_id,
+                            f"Trip to {travel_plan['destination']}",
+                            travel_plan['destination'],
+                            travel_dates_str,
+                            travel_plan
+                        )
+
+                    st.session_state.current_step = 'step7'
+                    st.rerun()
+
+            with col3:
+                if st.button("Create My Itinerary →", use_container_width=True):
+                    st.session_state.selected_experiences = selected_experiences
+                    st.session_state.current_step = 'step7'
+                    st.success(f"Added {len(selected_experiences)} experiences to your trip!")
+                    st.rerun()
+        else:
+            # Non-logged in users get the regular flow
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("← Back to Dining", use_container_width=True):
+                    st.session_state.current_step = 'step5'
+                    st.rerun()
+
+            with col2:
+                if st.button("Create My Itinerary →", use_container_width=True):
+                    st.session_state.selected_experiences = selected_experiences
+                    st.session_state.current_step = 'step7'
+                    st.success(f"Added {len(selected_experiences)} experiences to your trip!")
+                    st.rerun()
+
+            # Show login prompt and plan new trip option
+            st.info("🔐 Sign in to save your trip and access booking features!")
+
+            # Plan New Trip button for non-logged users too
+            if st.button("🔄 Plan New Trip", use_container_width=True, key="plan_new_trip_step6"):
+                # Reset all travel planning session state
+                st.session_state.current_step = 'step1'
+                st.session_state.travel_plans = {}
+                st.session_state.selected_destination = {}
+                st.session_state.selected_transport = {}
+                st.session_state.selected_accommodation = {}
+                st.session_state.selected_restaurants = []
+                st.session_state.selected_experiences = []
+                st.session_state.final_itinerary = {}
+
+                # Reset swipe states
+                if 'current_destination_index' in st.session_state:
+                    del st.session_state.current_destination_index
+                if 'liked_destinations' in st.session_state:
+                    del st.session_state.liked_destinations
+                if 'rejected_destinations' in st.session_state:
+                    del st.session_state.rejected_destinations
+                if 'current_accommodation_index' in st.session_state:
+                    del st.session_state.current_accommodation_index
+                if 'liked_accommodations' in st.session_state:
+                    del st.session_state.liked_accommodations
+                if 'rejected_accommodations' in st.session_state:
+                    del st.session_state.rejected_accommodations
+
+                st.success("Ready to plan your next adventure!")
                 st.rerun()
 
     def render_step7_itinerary(self):
@@ -1086,8 +1573,8 @@ class TravelEaseApp:
 
         with col2:
             st.info(f"""
-            **✈️ Flight**
-            {transport}
+            **🚗 Transportation**
+            Ground transport selected
 
             **🏠 Accommodation**
             {accommodation}
@@ -1111,67 +1598,110 @@ class TravelEaseApp:
         # Mock itinerary generation
         days = ["Day 1", "Day 2", "Day 3"]
 
+        # Get selected restaurants and experiences
+        selected_restaurants = st.session_state.get('selected_restaurants', [])
+        selected_experiences = st.session_state.get('selected_experiences', [])
+
+        # COMMENTED OUT - Flight information
+        # flight_info = st.session_state.get('selected_transport', {}).get('flight', {})
+        # arrival_time = flight_info.get('arrival', '2:30 PM')
+        # departure_time = flight_info.get('departure', '8:00 AM')
+
+        # Default arrival/departure times for itinerary planning
+        arrival_time = '2:30 PM'
+        departure_time = '6:00 PM'
+
         for day in days:
             with st.expander(f"📆 {day}", expanded=True):
                 if day == "Day 1":
-                    st.markdown("""
-                    **Morning (9:00 AM)**
-                    - ✈️ Arrive at destination
-                    - 🚗 Airport transfer to accommodation
-                    - 🏠 Check-in and settle in
+                    lunch_restaurant = selected_restaurants[0]['name'] if len(selected_restaurants) > 0 else "local restaurant"
+                    dinner_restaurant = selected_restaurants[1]['name'] if len(selected_restaurants) > 1 else "recommended restaurant"
 
-                    **Afternoon (2:00 PM)**
-                    - 🍽️ Lunch at local restaurant
+                    # Calculate arrival time and subsequent activities
+                    arrival_hour = int(arrival_time.split(':')[0]) if ':' in arrival_time else 14
+                    if 'PM' in arrival_time and arrival_hour != 12:
+                        arrival_hour += 12
+                    elif 'AM' in arrival_time and arrival_hour == 12:
+                        arrival_hour = 0
+
+                    checkin_hour = arrival_hour + 1
+                    lunch_hour = max(checkin_hour + 1, 14)  # Ensure lunch is at least 2 PM
+
+                    st.markdown(f"""
+                    **Morning/Afternoon ({arrival_time})**
+                    - 🚗 Arrive at destination
+                    - 🏠 Check-in and settle in ({checkin_hour}:00)
+
+                    **Afternoon ({lunch_hour}:00)**
+                    - 🍽️ Lunch at {lunch_restaurant}
                     - 🚶 City walking tour
 
                     **Evening (7:00 PM)**
-                    - 🍽️ Dinner at recommended restaurant
+                    - 🍽️ Dinner at {dinner_restaurant}
                     - 🌙 Evening stroll around neighborhood
                     """)
                 elif day == "Day 2":
-                    st.markdown("""
+                    lunch_restaurant = selected_restaurants[2]['name'] if len(selected_restaurants) > 2 else "local café"
+                    dinner_restaurant = selected_restaurants[3]['name'] if len(selected_restaurants) > 3 else "restaurant with a view"
+                    experience_1 = selected_experiences[0]['name'] if len(selected_experiences) > 0 else "Museum visit"
+                    experience_2 = selected_experiences[1]['name'] if len(selected_experiences) > 1 else "Adventure activity"
+
+                    st.markdown(f"""
                     **Morning (9:00 AM)**
                     - 🍳 Breakfast at accommodation
-                    - 🎨 Museum visit
+                    - 🎨 {experience_1}
 
                     **Afternoon (1:00 PM)**
-                    - 🍽️ Lunch break
-                    - 🎯 Adventure activity
+                    - 🍽️ Lunch at {lunch_restaurant}
+                    - 🎯 {experience_2}
 
                     **Evening (6:00 PM)**
                     - 🌅 Sunset boat tour
-                    - 🍽️ Dinner with a view
+                    - 🍽️ Dinner at {dinner_restaurant}
                     """)
                 else:
-                    st.markdown("""
+                    final_restaurant = selected_restaurants[4]['name'] if len(selected_restaurants) > 4 else selected_restaurants[0]['name'] if len(selected_restaurants) > 0 else "favorite spot"
+                    final_experience = selected_experiences[2]['name'] if len(selected_experiences) > 2 else "Shopping and souvenirs"
+
+                    # Calculate departure timing
+                    departure_hour = int(departure_time.split(':')[0]) if ':' in departure_time else 18
+                    if 'PM' in departure_time and departure_hour != 12:
+                        departure_hour += 12
+                    elif 'AM' in departure_time and departure_hour == 12:
+                        departure_hour = 0
+
+                    airport_transfer_hour = max(departure_hour - 2, 16)  # 2 hours before flight, minimum 4 PM
+                    checkout_hour = max(airport_transfer_hour - 1, 14)  # 1 hour before transfer, minimum 2 PM
+
+                    st.markdown(f"""
                     **Morning (10:00 AM)**
                     - 🍳 Leisurely breakfast
-                    - 🛍️ Shopping and souvenirs
+                    - 🛍️ {final_experience}
 
-                    **Afternoon (2:00 PM)**
-                    - 🍽️ Final meal at favorite spot
+                    **Afternoon ({checkout_hour}:00)**
+                    - 🍽️ Final meal at {final_restaurant}
                     - 📦 Pack and check out
 
-                    **Evening (6:00 PM)**
-                    - 🚗 Transfer to airport
-                    - ✈️ Departure
+                    **Evening ({airport_transfer_hour}:00)**
+                    - 🚗 Departure preparation
+                    - 🚗 Leave destination at {departure_time}
                     """)
 
         # Budget breakdown
         st.markdown("### 💰 Estimated Budget Breakdown")
 
         # Mock budget calculation
-        flight_cost = 450
+        # flight_cost = 450  # COMMENTED OUT - Flight costs
         accommodation_cost = 85 * 3  # 3 nights
         restaurant_cost = len(st.session_state.selected_restaurants) * 50
         experience_cost = sum(exp.get('price', 0) for exp in st.session_state.selected_experiences)
         transport_cost = 100
 
-        total_cost = flight_cost + accommodation_cost + restaurant_cost + experience_cost + transport_cost
+        total_cost = accommodation_cost + restaurant_cost + experience_cost + transport_cost
 
         budget_data = {
-            'Category': ['Flight', 'Accommodation', 'Dining', 'Experiences', 'Local Transport'],
-            'Cost': [flight_cost, accommodation_cost, restaurant_cost, experience_cost, transport_cost]
+            'Category': ['Accommodation', 'Dining', 'Experiences', 'Local Transport'],
+            'Cost': [accommodation_cost, restaurant_cost, experience_cost, transport_cost]
         }
 
         budget_df = pd.DataFrame(budget_data)
@@ -1189,27 +1719,50 @@ class TravelEaseApp:
             for _, row in budget_df.iterrows():
                 st.write(f"**{row['Category']}:** ${row['Cost']:,}")
 
-        # Action buttons
-        st.markdown("---")
+        # Action buttons - only show if user is logged in
+        if st.session_state.get('user_registered', False) and st.session_state.get('user_id', None):
+            st.markdown("---")
 
-        col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            if st.button("← Back to Experiences", use_container_width=True):
-                st.session_state.current_step = 'step6'
-                st.rerun()
+            with col2:
+                if st.button("📧 Email Itinerary", use_container_width=True):
+                    st.success("Itinerary sent to your email!")
+                if st.button("💳 Book This Trip", use_container_width=True):
+                    st.success("🎉 Trip booked successfully! Have an amazing journey!")
 
-        with col2:
-            if st.button("📧 Email Itinerary", use_container_width=True):
-                st.success("Itinerary sent to your email!")
-
-        with col3:
-            if st.button("💳 Book This Trip", use_container_width=True):
-                st.success("🎉 Trip booked successfully! Have an amazing journey!")
-                # Reset for new trip
-                if st.button("Plan Another Trip"):
+                # Plan Another Trip button (separate from booking)
+                if st.button("🔄 Plan Another Trip", use_container_width=True):
+                    # Reset all travel planning session state
                     st.session_state.current_step = 'step1'
+                    st.session_state.travel_plans = {}
+                    st.session_state.selected_destination = {}
+                    st.session_state.selected_transport = {}
+                    st.session_state.selected_accommodation = {}
+                    st.session_state.selected_restaurants = []
+                    st.session_state.selected_experiences = []
+                    st.session_state.final_itinerary = {}
+
+                    # Reset swipe states
+                    if 'current_destination_index' in st.session_state:
+                        del st.session_state.current_destination_index
+                    if 'liked_destinations' in st.session_state:
+                        del st.session_state.liked_destinations
+                    if 'rejected_destinations' in st.session_state:
+                        del st.session_state.rejected_destinations
+                    if 'current_accommodation_index' in st.session_state:
+                        del st.session_state.current_accommodation_index
+                    if 'liked_accommodations' in st.session_state:
+                        del st.session_state.liked_accommodations
+                    if 'rejected_accommodations' in st.session_state:
+                        del st.session_state.rejected_accommodations
+
+                    st.success("Ready to plan your next adventure!")
                     st.rerun()
+        else:
+            # Show message for non-logged in users
+            st.markdown("---")
+            st.info("🔐 Please sign in to save your trip and access booking features.")
 
 # Run the application
 if __name__ == "__main__":
